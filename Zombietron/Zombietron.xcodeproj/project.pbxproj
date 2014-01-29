@@ -25,6 +25,7 @@
 		1AA19C0B18957E18006F76A4 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1AA19BE318957E18006F76A4 /* UIKit.framework */; };
 		1AA19C1318957E18006F76A4 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = 1AA19C1118957E18006F76A4 /* InfoPlist.strings */; };
 		1AA19C1518957E18006F76A4 /* ZombietronTests.m in Sources */ = {isa = PBXBuildFile; fileRef = 1AA19C1418957E18006F76A4 /* ZombietronTests.m */; };
+		1AA19C1F18957F6E006F76A4 /* assets.atlas in Resources */ = {isa = PBXBuildFile; fileRef = 1AA19C1E18957F6E006F76A4 /* assets.atlas */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -62,6 +63,7 @@
 		1AA19C1018957E18006F76A4 /* ZombietronTests-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "ZombietronTests-Info.plist"; sourceTree = "<group>"; };
 		1AA19C1218957E18006F76A4 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		1AA19C1418957E18006F76A4 /* ZombietronTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ZombietronTests.m; sourceTree = "<group>"; };
+		1AA19C1E18957F6E006F76A4 /* assets.atlas */ = {isa = PBXFileReference; lastKnownFileType = folder.skatlas; path = assets.atlas; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -123,6 +125,7 @@
 		1AA19BE718957E18006F76A4 /* Zombietron */ = {
 			isa = PBXGroup;
 			children = (
+				1AA19C1E18957F6E006F76A4 /* assets.atlas */,
 				1AA19BF018957E18006F76A4 /* ZBTAppDelegate.h */,
 				1AA19BF118957E18006F76A4 /* ZBTAppDelegate.m */,
 				1AA19BF318957E18006F76A4 /* Main_iPhone.storyboard */,
@@ -246,6 +249,7 @@
 			files = (
 				1AA19C0018957E18006F76A4 /* Spaceship.png in Resources */,
 				1AA19C0218957E18006F76A4 /* Images.xcassets in Resources */,
+				1AA19C1F18957F6E006F76A4 /* assets.atlas in Resources */,
 				1AA19BF818957E18006F76A4 /* Main_iPad.storyboard in Resources */,
 				1AA19BF518957E18006F76A4 /* Main_iPhone.storyboard in Resources */,
 				1AA19BEC18957E18006F76A4 /* InfoPlist.strings in Resources */,
@@ -491,7 +495,6 @@
 				1AA19C1A18957E18006F76A4 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
 		};
 		1AA19C1B18957E18006F76A4 /* Build configuration list for PBXNativeTarget "ZombietronTests" */ = {
 			isa = XCConfigurationList;
@@ -500,7 +503,6 @@
 				1AA19C1D18957E18006F76A4 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
 	};
