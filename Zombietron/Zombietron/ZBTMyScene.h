@@ -8,6 +8,8 @@
 
 #import <SpriteKit/SpriteKit.h>
 
-@interface ZBTMyScene : SKScene
+//@interface ZBTMyScene : SKScene
+// -djr: techtalk - lets implement our collision delegate now
+@interface ZBTMyScene : SKScene<SKPhysicsContactDelegate>
 
 @end

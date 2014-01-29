@@ -17,6 +17,13 @@
 // -djr: zombie swapwner, again normally I would create: class ZBTSpawner : SKNode
 @property(nonatomic) SKNode* spawner;
 
+@property(nonatomic) SKPhysicsBody* playerPhysicsBody;
+@property(nonatomic) bool dead;
+@property(nonatomic) bool readyToRespawn;
+@property(nonatomic) SKLabelNode* tapToRespawnLabel;
+
+@property(nonatomic) UITouch* shootingTouch;
+
 @end
 
 // -djr: techtalk - we need some simple vector math macros and functions
@@ -92,11 +99,38 @@ static float GetAngleForDirection(CGPoint* direction)
     return array;
 }
 
--(id)initWithSize:(CGSize)size {    
+static CGPoint GetNormalForAngle(float angle)
+{
+	CGAffineTransform rotation = CGAffineTransformMakeRotation(angle);
+	const CGPoint vRight = CGPointMake(1,0);
+	return CGPointApplyAffineTransform(vRight,rotation);
+}
+
+// Physics Masks
+#define PhysicsMask_Board           (1<<0)
+#define PhysicsMask_Prop            (1<<1)  // all props now (maybe different masks)
+#define PhysicsMask_Enemy           (1<<4)
+#define PhysicsMask_Player          (1<<5)
+#define PhysicsMask_Bullet          (1<<8)
+
+#define PhysicsMask_AllWorld        (PhysicsMask_Board|PhysicsMask_Prop)
+#define PhysicsMask_AllNpcs         (PhysicsMask_Enemy|PhysicsMask_Player)
+
+-(id)initWithSize:(CGSize)size {
     if (self = [super initWithSize:size]) {
         /* Setup your scene here */
         
         self.backgroundColor = [SKColor colorWithRed:0.15 green:0.15 blue:0.3 alpha:1.0];
+        // -djr: tip - being able to see your physics object is imporant
+        // it is possible to render the physics shapes by swizzling the physics object methods
+        
+// -djr: techtalk - we don't want gravity in this game
+//#define TT_GRAVITY_OFF
+#ifdef TT_GRAVITY_OFF
+        self.physicsWorld.gravity = CGVectorMake(0, 0);
+#endif
+// -djr: techtalk - lets handle collision resolution now
+        self.physicsWorld.contactDelegate = self;
         
         // -djr: techtalk - load assets (optionally async)
 // -djr: show the 'atlas' in the file system and its designated by the suffix name .atlas
@@ -105,10 +139,21 @@ static float GetAngleForDirection(CGPoint* direction)
         // and builds sprite sheets and you have flexibility in organization of assets
         // for larger more complex games
         
-        // -djr: techtalk - setup the player                
+        // -djr: techtalk - setup the player
+#define PlayerRadius    48
         _player = [SKSpriteNode spriteNodeWithTexture:[self loadTexture:@"player-dad-default-000019.png"]];
+        _player.physicsBody = [SKPhysicsBody bodyWithCircleOfRadius:PlayerRadius];
+        _player.physicsBody.categoryBitMask = PhysicsMask_Player;
+// -djr: techtalk - we do this specify what callision callbacks happen
+        _player.physicsBody.contactTestBitMask = PhysicsMask_Enemy;
+// -djr: techtalk - we do this to allow respawn easy
+        _playerPhysicsBody = _player.physicsBody;
+// -djr: techtalk - lets make sure the zombies don't push the players arounc
+//#define TT_STATIC
+#ifdef TT_STATIC
+        _player.physicsBody.dynamic = false;
+#endif
         [self addChild:_player];
-        
         // -djr: techtalk - place the player on screen
         _player.position = CGPointMake(size.width/2,size.height/2);
         // -djr: techtalk - y is from bottom left
@@ -125,6 +170,8 @@ static float GetAngleForDirection(CGPoint* direction)
         // -djr: SKAction is how we do things. A very powerful programming langauge
         // for our objects. We can string actions together to get behaviours
         // and game logic.
+        
+        _zombies = [NSMutableSet setWithCapacity:1024];
         [_spawner runAction:[SKAction repeatActionForever:[SKAction sequence:@[[SKAction waitForDuration:3.f]
                                                                               , [SKAction runBlock:^{
             
@@ -132,7 +179,11 @@ static float GetAngleForDirection(CGPoint* direction)
             for (int i = 0; i < numToSpawn; ++i)
             {
                 SKSpriteNode* zombie = [SKSpriteNode spriteNodeWithTexture:[self loadTexture:@"zombie-grabber-default-0001.png"]];
-                
+#define ZombieRadius    48
+                zombie.physicsBody = [SKPhysicsBody bodyWithCircleOfRadius:ZombieRadius];
+                zombie.physicsBody.categoryBitMask = PhysicsMask_Enemy;
+// -djr: techtalk - lets let zombies overlap each other (not collide)
+                zombie.physicsBody.collisionBitMask = PhysicsMask_Player;
                 // -djr, lets bake zombies spawn offscreen and walk on
                 zombie.position = CGPointMake(arc4random() % (int)size.width, arc4random() % (int)size.height);
                 CGPoint moveTarget = CGPointZero;
@@ -163,6 +214,10 @@ static float GetAngleForDirection(CGPoint* direction)
 #define ZombieMoveSpeed  30.f
                 CGPoint offset = CGPointSubtract(moveTarget, zombie.position);
                 // -djr: techtalk lets also modify the animation playback rate to account for the 'speed'
+                
+// -djr: notice how the 'move sequence' warps the zombie around the player... that isn't cool
+// -djr: if we were doing a different game, we would just set the 'velocity' of the physicsBody to allow
+// physics based collisions to resolve naturally and not use an 'action' to move the zombie
                 [zombie runAction:[SKAction sequence:@[[SKAction moveTo:moveTarget duration:CGPointLength(offset) / ZombieMoveSpeed]
                                                        , [SKAction runBlock:^{
                     // -djr: list management (do this before remove from parent)
@@ -174,9 +229,7 @@ static float GetAngleForDirection(CGPoint* direction)
                 // -djr: techtalk - lets get them pointing the proper direction. it looks weird that
                 // they walk sideways
                 zombie.zRotation = GetAngleForDirection(&offset);
-       
-//#define TT_ANIMATIONS
-#ifdef TT_ANIMATIONS
+                
                 // -djr: techtalk - lets make the zombie 'animate' its walk using an SKAction
                 [zombie runAction:[SKAction repeatActionForever:[SKAction animateWithTextures:[self loadTextures:@[@"zombie-grabber-walk-0001.png"
                                                                                      ,@"zombie-grabber-walk-0002.png"
@@ -189,15 +242,45 @@ static float GetAngleForDirection(CGPoint* direction)
                                                                       timePerFrame:1.f / 8.f
                                                                             resize:YES
                                                                            restore:NO]]];
-#endif
             }
-        }]]]]];        
+        }]]]]];
     }
     return self;
 }
 
 -(void)touchesBegan:(NSSet *)touches withEvent:(UIEvent *)event {
+    
+//#define TT_RESPAWN
+#ifdef TT_RESPAWN
     /* Called when a touch begins */
+    if (_readyToRespawn)
+    {
+        [_tapToRespawnLabel runAction:[SKAction sequence:@[[SKAction fadeOutWithDuration:1.f]
+                                               ,[SKAction removeFromParent]]]];
+        _tapToRespawnLabel = nil;
+        
+        for (SKNode* zombie in _zombies)
+        {
+            [zombie removeAllActions];
+            zombie.physicsBody = nil;
+            [zombie runAction:[SKAction sequence:@[[SKAction fadeOutWithDuration:1.f]
+                                                   ,[SKAction removeFromParent]]]];
+        }
+        [_zombies removeAllObjects];
+        
+        [_player runAction:[SKAction setTexture:[self loadTexture:@"player-dad-default-000019.png"]]];
+        _player.physicsBody = _playerPhysicsBody;
+        _dead = false;
+        _readyToRespawn = false;
+        
+        _shootingTouch = nil;
+    }
+#endif
+    
+    if (_dead)
+    {
+        return;
+    }
     
     for (UITouch *touch in touches) {
         CGPoint location = [touch locationInNode:self];
@@ -205,17 +288,162 @@ static float GetAngleForDirection(CGPoint* direction)
         // -djr: techtalk lets start tracking the player aim with the finger move
         CGPoint offset = CGPointSubtract(location, _player.position);
         _player.zRotation = GetAngleForDirection(&offset);
+       
+//#define TT_SHOOT
+#ifdef TT_SHOOT
+        _shootingTouch = touch;
+
+#define ShootingKey @"ShootingKey"
+        [_player runAction:[SKAction repeatActionForever:[SKAction sequence:@[[SKAction runBlock:^{
+            if (!_shootingTouch)
+            {
+                [_player removeActionForKey:ShootingKey];
+            }
+            
+            SKSpriteNode* bullet = [SKSpriteNode spriteNodeWithTexture:[self loadTexture:@"shotgun-bullet.png"]];
+#define BulletRadius    8
+            bullet.physicsBody = [SKPhysicsBody bodyWithCircleOfRadius:BulletRadius];
+            bullet.physicsBody.categoryBitMask = PhysicsMask_Bullet;
+            // -djr: techtalk - lets let zombies overlap each other (not collide)
+            bullet.physicsBody.contactTestBitMask = PhysicsMask_Enemy;
+            // -djr: techtaclk - dont collide with anything
+            bullet.physicsBody.collisionBitMask = 0;
+            // -djr, lets bake zombies spawn offscreen and walk on
+            bullet.position = _player.position;
+            [self addChild:bullet];
+            
+            CGPoint normal = GetNormalForAngle(_player.zRotation);
+#define BulletVelocity  200
+            bullet.physicsBody.velocity = CGVectorMake(normal.x * BulletVelocity,normal.y * BulletVelocity);
+            [bullet runAction:[SKAction sequence:@[[SKAction waitForDuration:10.f]
+                                                   ,[SKAction removeFromParent]]]];
+        }]
+                                                           ,[SKAction waitForDuration:.25f]]]] withKey:ShootingKey];
+#endif
+        break;
     }
 }
 
 // -djr: techtalk lets start tracking the player aim with the finger move
 -(void) touchesMoved:(NSSet *)touches withEvent:(UIEvent *)event
 {
+    if (_dead)
+    {
+        return;
+    }
+    
     for (UITouch *touch in touches) {
         CGPoint location = [touch locationInNode:self];
     
         CGPoint offset = CGPointSubtract(location, _player.position);
         _player.zRotation = GetAngleForDirection(&offset);
+    }
+}
+
+-(void) touchesEnded:(NSSet *)touches withEvent:(UIEvent *)event
+{
+    if ([touches containsObject:_shootingTouch])
+    {
+        _shootingTouch = nil;
+    }
+}
+
+-(void) touchesCancelled:(NSSet *)touches withEvent:(UIEvent *)event
+{
+    [self touchesEnded:touches withEvent:event];
+}
+
+
+#pragma mark - Physics Delegate
+- (void)didBeginContact:(SKPhysicsContact *)contact {
+    SKNode* me = contact.bodyA.node;
+    // Either bodyA or bodyB in the collision could be a character.
+    SKNode* other = contact.bodyB.node;
+    if (!me || !other)
+    {
+        return;
+    }
+    
+    if ([_zombies containsObject:me])
+    {
+        SKNode* temp = me;
+        me = other;
+        other = temp;
+    }
+
+    if ([_zombies containsObject:other])
+    {
+//#define TT_KILLPLAYER
+#ifdef TT_KILLPLAYER
+        if (me == _player)
+        {
+            // kill the player
+            
+            _shootingTouch = nil;
+            
+#ifdef TT_RESPAWN
+            _tapToRespawnLabel = [SKLabelNode labelNodeWithFontNamed:@"Chalkduster"];
+            
+            _tapToRespawnLabel.text = @"Tap To Replay";
+            _tapToRespawnLabel.fontSize = 30;
+            _tapToRespawnLabel.position = CGPointMake(CGRectGetMidX(self.frame),
+                                           CGRectGetMidY(self.frame));
+            _tapToRespawnLabel.alpha = 0.f;
+            
+            [self addChild:_tapToRespawnLabel];
+            
+            [_tapToRespawnLabel runAction:[SKAction fadeInWithDuration:1.f]];
+#endif
+            
+            _dead = true;
+            _player.physicsBody = nil;
+            [_player removeAllActions];
+            [_player runAction:[SKAction sequence:@[[SKAction animateWithTextures:[self loadTextures:@[@"player-dad-death-000258.png"
+                                                                                                               ,@"player-dad-death-000258.png"
+                                                                                                               ,@"player-dad-death-000259.png"
+                                                                                                               ,@"player-dad-death-000260.png"
+                                                                                                               ,@"player-dad-death-000261.png"
+                                                                                                               ,@"player-dad-death-000262.png"
+                                                                                                               ,@"player-dad-death-000263.png"
+                                                                                                               ,@"player-dad-death-000264.png"]]
+                                                                             timePerFrame:1.f / 8.f
+                                                                                   resize:YES
+                                                                                  restore:NO]
+                                                    , [SKAction waitForDuration:2.f]
+                                                    , [SKAction runBlock:^{
+                _readyToRespawn = true;
+            }]]]];
+            
+            return;
+        }
+#endif
+       
+#define KILL_ZOMBIES
+#ifdef KILL_ZOMBIES
+        // else its a bullet
+        if (me.physicsBody.categoryBitMask & PhysicsMask_Bullet)
+        {
+            [me removeFromParent];
+            
+            [_zombies removeObject:other];
+            other.physicsBody = nil;
+            [other removeAllActions];
+            [other runAction:[SKAction sequence:@[[SKAction animateWithTextures:[self loadTextures:@[@"zombie-grabber-death-a-0001.png"
+                                                                                                       ,@"zombie-grabber-death-a-0002.png"
+                                                                                                       ,@"zombie-grabber-death-a-0003.png"
+                                                                                                       ,@"zombie-grabber-death-a-0004.png"
+                                                                                                       ,@"zombie-grabber-death-a-0005.png"
+                                                                                                       ,@"zombie-grabber-death-a-0006.png"
+                                                                                                       ,@"zombie-grabber-death-a-0007.png"
+                                                                                                       ,@"zombie-grabber-death-a-0008.png"]]
+                                                                     timePerFrame:1.f / 8.f
+                                                                           resize:YES
+                                                                          restore:NO]
+                                                    , [SKAction waitForDuration:2.f]
+                                                    , [SKAction fadeOutWithDuration:1.f]
+                                                    , [SKAction removeFromParent]]]];
+        }
+#endif
     }
 }
 
