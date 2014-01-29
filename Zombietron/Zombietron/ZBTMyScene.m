@@ -27,6 +27,7 @@
 @end
 
 // -djr: techtalk - we need some simple vector math macros and functions
+#define CGPointAdd(p1,p2)			CGPointMake(p1.x+p2.x, p1.y+p2.y)
 #define CGPointSubtract(p1,p2)		CGPointMake(p1.x-p2.x, p1.y-p2.y)
 #define CGPointDot(p1,p2)			(p1.x * p2.x + p1.y * p2.y)
 #define CGPointLengthSquared(p1)	(p1.x*p1.x + p1.y*p1.y)
@@ -81,6 +82,13 @@ static float GetAngleForDirection(CGPoint* direction)
 	return angle;
 }
 
+static CGPoint GetNormalForAngle(float angle)
+{
+	CGAffineTransform rotation = CGAffineTransformMakeRotation(angle);
+	const CGPoint vRight = CGPointMake(1,0);
+	return CGPointApplyAffineTransform(vRight,rotation);
+}
+
 @implementation ZBTMyScene
 
 -(SKTexture*) loadTexture:(NSString*) textureName
@@ -99,11 +107,9 @@ static float GetAngleForDirection(CGPoint* direction)
     return array;
 }
 
-static CGPoint GetNormalForAngle(float angle)
+-(SKEmitterNode*) emitterForName:(NSString*) name
 {
-	CGAffineTransform rotation = CGAffineTransformMakeRotation(angle);
-	const CGPoint vRight = CGPointMake(1,0);
-	return CGPointApplyAffineTransform(vRight,rotation);
+    return [NSKeyedUnarchiver unarchiveObjectWithFile:[[NSBundle mainBundle] pathForResource:name ofType:@"sks"]];
 }
 
 // Physics Masks
@@ -125,10 +131,7 @@ static CGPoint GetNormalForAngle(float angle)
         // it is possible to render the physics shapes by swizzling the physics object methods
         
 // -djr: techtalk - we don't want gravity in this game
-//#define TT_GRAVITY_OFF
-#ifdef TT_GRAVITY_OFF
         self.physicsWorld.gravity = CGVectorMake(0, 0);
-#endif
 // -djr: techtalk - lets handle collision resolution now
         self.physicsWorld.contactDelegate = self;
         
@@ -149,10 +152,7 @@ static CGPoint GetNormalForAngle(float angle)
 // -djr: techtalk - we do this to allow respawn easy
         _playerPhysicsBody = _player.physicsBody;
 // -djr: techtalk - lets make sure the zombies don't push the players arounc
-//#define TT_STATIC
-#ifdef TT_STATIC
         _player.physicsBody.dynamic = false;
-#endif
         [self addChild:_player];
         // -djr: techtalk - place the player on screen
         _player.position = CGPointMake(size.width/2,size.height/2);
@@ -249,9 +249,6 @@ static CGPoint GetNormalForAngle(float angle)
 }
 
 -(void)touchesBegan:(NSSet *)touches withEvent:(UIEvent *)event {
-    
-//#define TT_RESPAWN
-#ifdef TT_RESPAWN
     /* Called when a touch begins */
     if (_readyToRespawn)
     {
@@ -275,7 +272,6 @@ static CGPoint GetNormalForAngle(float angle)
         
         _shootingTouch = nil;
     }
-#endif
     
     if (_dead)
     {
@@ -288,9 +284,7 @@ static CGPoint GetNormalForAngle(float angle)
         // -djr: techtalk lets start tracking the player aim with the finger move
         CGPoint offset = CGPointSubtract(location, _player.position);
         _player.zRotation = GetAngleForDirection(&offset);
-       
-//#define TT_SHOOT
-#ifdef TT_SHOOT
+        
         _shootingTouch = touch;
 
 #define ShootingKey @"ShootingKey"
@@ -312,6 +306,21 @@ static CGPoint GetNormalForAngle(float angle)
             bullet.position = _player.position;
             [self addChild:bullet];
             
+            // -djr techtalk: add emitter for the muzzle flash
+//#define TT_MUZZLEFLASH
+#ifdef TT_MUZZLEFLASH
+            SKEmitterNode *emitter = [self emitterForName:@"shotgun-muzzle-flash"];
+            emitter.position = CGPointAdd(_player.position,CGPointMake(0, 0));
+            emitter.zPosition = _player.zPosition + .01;
+            emitter.zRotation = _player.zRotation;
+            [self addChild:emitter];
+            [emitter runAction:[SKAction sequence:@[
+                                                    [SKAction waitForDuration:10.f]
+                                                    , [SKAction removeFromParent]
+                                                    , [SKAction waitForDuration:.1f]]]];
+#endif
+
+            
             CGPoint normal = GetNormalForAngle(_player.zRotation);
 #define BulletVelocity  200
             bullet.physicsBody.velocity = CGVectorMake(normal.x * BulletVelocity,normal.y * BulletVelocity);
@@ -319,7 +328,6 @@ static CGPoint GetNormalForAngle(float angle)
                                                    ,[SKAction removeFromParent]]]];
         }]
                                                            ,[SKAction waitForDuration:.25f]]]] withKey:ShootingKey];
-#endif
         break;
     }
 }
@@ -373,15 +381,12 @@ static CGPoint GetNormalForAngle(float angle)
 
     if ([_zombies containsObject:other])
     {
-//#define TT_KILLPLAYER
-#ifdef TT_KILLPLAYER
         if (me == _player)
         {
             // kill the player
             
             _shootingTouch = nil;
             
-#ifdef TT_RESPAWN
             _tapToRespawnLabel = [SKLabelNode labelNodeWithFontNamed:@"Chalkduster"];
             
             _tapToRespawnLabel.text = @"Tap To Replay";
@@ -393,7 +398,7 @@ static CGPoint GetNormalForAngle(float angle)
             [self addChild:_tapToRespawnLabel];
             
             [_tapToRespawnLabel runAction:[SKAction fadeInWithDuration:1.f]];
-#endif
+            
             
             _dead = true;
             _player.physicsBody = nil;
@@ -416,14 +421,29 @@ static CGPoint GetNormalForAngle(float angle)
             
             return;
         }
-#endif
-       
-#define KILL_ZOMBIES
-#ifdef KILL_ZOMBIES
+        
         // else its a bullet
         if (me.physicsBody.categoryBitMask & PhysicsMask_Bullet)
         {
             [me removeFromParent];
+            
+            // -djr techtalk: add emitter for the bile spray
+//#define TT_BLOODSPRAY
+#ifdef TT_BLOODSPRAY
+            CGPoint offset = CGPointSubtract(other.position, me.position);
+            SKEmitterNode *emitter = [self emitterForName:@"zombie-bile-spray"];
+            emitter.position = other.position;
+            emitter.zRotation = GetAngleForDirection(&offset);
+            emitter.zPosition = other.zPosition + .01;
+//            emitter.particleZPositionRange = Npc_RelativeOffsetZ_BloodRange;
+            [self addChild:emitter];
+            [emitter runAction:
+             [SKAction sequence:@[
+                                  [SKAction waitForDuration:5.f]
+                                  , [SKAction removeFromParent]
+                                  ]]];
+            [self.parent addChild:emitter];
+#endif
             
             [_zombies removeObject:other];
             other.physicsBody = nil;
@@ -443,7 +463,7 @@ static CGPoint GetNormalForAngle(float angle)
                                                     , [SKAction fadeOutWithDuration:1.f]
                                                     , [SKAction removeFromParent]]]];
         }
-#endif
+        
     }
 }
 
